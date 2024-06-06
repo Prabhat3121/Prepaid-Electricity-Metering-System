@@ -1,0 +1,203 @@
+#include <SoftwareSerial.h>
+#include <LiquidCrystal_I2C.h>
+#include "ACS712.h"
+
+
+LiquidCrystal_I2C lcd(0x27,20,4);
+
+//  Arduino UNO has 5.0 volt with a max ADC value of 1023 steps
+//  ACS712 5A  uses 185 mV per A
+//  ACS712 20A uses 100 mV per A
+//  ACS712 30A uses  66 mV per A
+
+
+ACS712  ACS(A0, 5.0, 1023, 66);
+  long int time = 1;
+  float current = 0;
+  float energy = 0;
+  float hour = 0;
+  float unit = 0;
+  float amount = 0;
+  float allowedUnit = 0;
+  float rate = 5.0;
+  int a = 2;
+
+
+SoftwareSerial SIM900A(9, 10);  // RX, TX pins of SIM900A
+String incomingData = "";
+String message = "";
+
+
+void setup() {
+  lcd.begin();
+  lcd.backlight();
+  lcd.setCursor(0,0);
+  lcd.print("Prepaid Energy");
+  lcd.setCursor(0,1);
+  lcd.print("Meter");
+
+  
+  
+  //Serial.begin(9600);
+  SIM900A.begin(9600);
+  
+  delay(1000);
+
+  SIM900A.println("AT+CMGF=1\r");  
+  delay(100);
+  SIM900A.println("AT+CNMI=2,2,0,0,0\r");  
+  delay(100);
+
+
+  Serial.begin(115200);
+  while (!Serial);
+  Serial.println(__FILE__);
+  Serial.print("ACS712_LIB_VERSION: ");
+  Serial.println(ACS712_LIB_VERSION);
+
+  ACS.autoMidPoint();
+  Serial.print("MidPoint: ");
+  Serial.print(ACS.getMidPoint());
+  Serial.print(". Noise mV: ");
+  Serial.println(ACS.getNoisemV());
+
+  //relay setup
+  pinMode(12, OUTPUT);
+  digitalWrite(12, HIGH);
+  
+}
+
+void loop() {
+  receive_message();
+
+  if(incomingData.indexOf("*5#")>=0)
+  {
+    amount = 5;
+  }
+
+  if(incomingData.indexOf("*10#")>=0)
+  {
+    amount = 10;
+  }
+
+  if(incomingData.indexOf("*15#")>=0)
+  {
+    amount = 15;
+  }
+
+  if(incomingData.indexOf("*20#")>=0)
+  {
+    amount = 20;
+  }
+
+  if(incomingData.indexOf("*30#")>=0)
+  {
+    amount = 30;
+  }
+
+  if(incomingData.indexOf("*40#")>=0)
+  {
+    amount = 40;
+  }
+
+  if(incomingData.indexOf("*50#")>=0)
+  {
+    amount = 50;
+  }
+
+  long int time = 1;
+  float current = 0;
+  float energy = 0;
+  float hour = 0;
+  float unit = 0;
+  //float amount = 0;
+  float allowedUnit = 0;
+  float rate = 5.0;
+  
+
+  if(amount>0){
+    digitalWrite(12, LOW);
+    runDevice();
+    amount = 0;
+    incomingData = "";
+    a = 2;
+  }
+}
+
+void receive_message()
+{
+  delay(500);
+  if(SIM900A.available()>0)
+  {
+    incomingData = SIM900A.readString();
+    Serial.print(incomingData);
+    delay(10);
+  }
+}
+
+
+void runDevice()
+{
+    while(a>1)
+    {
+      int mA = ACS.mA_AC();
+  
+      current = mA*0.001;
+      Serial.print("Current: ");
+      Serial.print(current);
+      delay(1000);
+        
+        /*here we are speeding up time by a certian factor otherwise it will take 
+          too much time to show changes. 
+          To increase time by following factors -
+          factor of 1000, use hour = 0.28
+          factor of 100, use hour = 0.028
+          factor of 10, use hour = 0.0028
+          factor of 1, use hour = 0.00028
+        */
+        //using factor of 100
+      hour = 0.28; 
+  
+      Serial.print("  time: ");
+      Serial.print(time);
+
+      if(mA>0){
+        time++;
+      }
+
+      energy = energy + current*220*hour;
+
+      if(mA>0){
+        unit = unit + energy*0.001;
+      }
+  
+      allowedUnit = amount/rate;
+  
+      Serial.print("  energy: ");
+      Serial.print(energy);
+      Serial.print("  Allowed Unit: ");
+      Serial.print(allowedUnit);
+      Serial.print("  unit: ");
+      Serial.println(unit);
+
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("Aval Unit - ");
+      lcd.setCursor(12,0);
+      lcd.print(allowedUnit);
+
+      lcd.setCursor(0,1);
+      lcd.print("Cons Unit - ");
+      lcd.setCursor(12,1);
+      lcd.print(unit);
+
+      if(unit > allowedUnit)
+      {
+        digitalWrite(12, HIGH);
+        a = 0;
+        time = 0;
+        energy = 0;
+        unit = 0;
+      }  
+    }
+}
